@@ -1,0 +1,47 @@
+variables:
+  PACKER_DIR: 01-consul/consul-ami
+  #  TF_DIR: terraform
+  #PLAN: plan.tfplan
+  S3_BUCKET: terraform-remote-sp-prod
+  AWS_ACCESS_KEY: "$AWS_ACCESS_KEY"
+  AWS_SECRET_ACCESS_KEY: "$AWS_SECRET_KEY"
+  CONSUL_VERSION: "$CONSUL_VERSION"
+  AWS_REGION: "us-east-1"
+
+#Image for AMI Creation
+image:
+  name: hashicorp/packer:1.7.4
+  entrypoint: [""]
+
+stages:
+  - validate
+  - build
+  - create_bucket
+
+packer validate:
+  stage: validate
+  script:
+    - packer validate -var "aws_access_key=$AWS_ACCESS_KEY" -var "aws_secret_key=$AWS_SECRET_KEY" -var "consul_version=$CONSUL_VERSION" $PACKER_DIR/ubuntu_ami.json
+  rules:
+    - changes:
+        - $PACKER_DIR/ubuntu_ami.json
+
+build_ami:
+  stage: build
+  script:
+    - packer build -var "aws_access_key=$AWS_ACCESS_KEY" -var "aws_secret_key=$AWS_SECRET_KEY" -var "consul_version=$CONSUL_VERSION" /$PACKER_DIR/ubuntu_ami.json
+  rules:
+    - changes:
+        - $PACKER_DIR/ubuntu_ami.json
+
+
+create_bucket_job:
+  stage: create_bucket
+  image:
+    name: amazon/aws-cli
+    entrypoint: [""]
+  script:
+    - echo "Creating S3 bucket..."
+    - aws configure set aws_access_key_id $AWS_ACCESS_KEY
+    - aws configure set aws_secret_access_key $AWS_SECRET_KEY
+    - aws s3api create-bucket --bucket $S3_BUCKET --region $AWS_REGION
