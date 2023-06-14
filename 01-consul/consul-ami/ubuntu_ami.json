@@ -1,0 +1,54 @@
+{
+  "variables": {
+    "aws_access_key": "",
+    "aws_secret_key": "",
+    "consul_version": ""
+  },
+
+  "builders": [
+    {
+      "type": "amazon-ebs",
+      "region": "us-east-1",
+      "access_key": "{{user `aws_access_key`}}",
+      "secret_key": "{{user `aws_secret_key`}}",
+
+      "source_ami_filter": {
+        "filters": {
+          "virtualization-type": "hvm",
+          "name": "ubuntu/images/hvm-ssd/ubuntu-focal-20.04-amd64-server-*",
+          "root-device-type": "ebs"
+        },
+        "owners": ["099720109477"],
+        "most_recent": true
+      },
+      "instance_type": "t2.micro",
+      "ssh_username": "ubuntu",
+      "ami_name": "consul-{{user `consul_version`}}-ubuntu-20.04 {{timestamp}}",
+      "tags": {
+        "Name": "Consul-AMI"
+      }
+    }
+  ],
+
+  "provisioners": [
+    {
+      "type": "shell",
+      "inline": [
+        "wget -qO - https://apt.releases.hashicorp.com/gpg | sudo apt-key add -",
+        "sudo apt-get clean",
+        "sudo apt-get update",
+        "sudo apt-get install -y unzip",
+        "sudo curl --silent -Lo /bin/jq https://github.com/stedolan/jq/releases/download/jq-1.5/jq-linux64",
+        "sudo chmod +x /bin/jq",
+        "sudo wget https://releases.hashicorp.com/consul/{{user `consul_version`}}/consul_{{user `consul_version`}}_linux_amd64.zip",
+        "sudo unzip consul_{{user `consul_version`}}_linux_amd64.zip",
+        "sudo mv consul /usr/local/bin/",
+        "sudo rm consul_{{user `consul_version`}}_linux_amd64.zip",
+        "curl \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o \"awscliv2.zip\"",
+        "unzip awscliv2.zip",
+        "sudo ./aws/install",
+        "sudo rm awscliv2.zip"
+      ]
+    }
+  ]
+}
