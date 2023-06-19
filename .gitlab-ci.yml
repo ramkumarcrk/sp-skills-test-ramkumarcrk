@@ -1,12 +1,17 @@
 variables:
   PACKER_DIR: 01-consul/consul-ami
-  #  TF_DIR: terraform
+  TF_FOUNDATION_PATH: 01-consul/foundation
+  TF_CONSUL: 01-consul/consul-cluster
+  TF_VPCEP: 01-consul/vpcendpoints
+  TF_ALB: 01-consul/applicationlb
   #PLAN: plan.tfplan
-  S3_BUCKET: terraform-remote-sp-prod
+  S3_BUCKET: terraform-remote-state-spc
   AWS_ACCESS_KEY: "$AWS_ACCESS_KEY"
   AWS_SECRET_ACCESS_KEY: "$AWS_SECRET_KEY"
   CONSUL_VERSION: "$CONSUL_VERSION"
   AWS_REGION: "us-east-1"
+  RUN_PATH: 02-fizzbuzz
+  TF_DEBUG: 03-debugging
 
 #Image for AMI Creation
 image:
@@ -17,6 +22,12 @@ stages:
   - validate
   - build
   - create_bucket
+  - foundation
+  - consul
+  - endpoints
+  - alb
+  - deploy
+  - debug
 
 packer validate:
   stage: validate
@@ -29,11 +40,10 @@ packer validate:
 build_ami:
   stage: build
   script:
-    - packer build -var "aws_access_key=$AWS_ACCESS_KEY" -var "aws_secret_key=$AWS_SECRET_KEY" -var "consul_version=$CONSUL_VERSION" /$PACKER_DIR/ubuntu_ami.json
+    - packer build -var "aws_access_key=$AWS_ACCESS_KEY" -var "aws_secret_key=$AWS_SECRET_KEY" -var "consul_version=$CONSUL_VERSION" $PACKER_DIR/ubuntu_ami.json
   rules:
     - changes:
         - $PACKER_DIR/ubuntu_ami.json
-
 
 create_bucket_job:
   stage: create_bucket
@@ -45,3 +55,86 @@ create_bucket_job:
     - aws configure set aws_access_key_id $AWS_ACCESS_KEY
     - aws configure set aws_secret_access_key $AWS_SECRET_KEY
     - aws s3api create-bucket --bucket $S3_BUCKET --region $AWS_REGION
+
+foundation_setup:
+  stage: foundation
+  image:
+    name: hashicorp/terraform:1.4.4
+    entrypoint: [""]
+  script:
+    - cd $TF_FOUNDATION_PATH
+    - terraform init -backend-config "access_key=$AWS_ACCESS_KEY" -backend-config "secret_key=$AWS_SECRET_KEY"
+    - terraform fmt
+    - terraform validate
+    - terraform plan
+    - terraform apply --auto-approve
+
+consul_cluster_on_aws:
+  stage: consul
+  image:
+    name: hashicorp/terraform:1.4.4
+    entrypoint: [""]
+  script:
+    - cd $TF_CONSUL
+    - terraform init -backend-config "access_key=$AWS_ACCESS_KEY" -backend-config "secret_key=$AWS_SECRET_KEY"
+    - terraform fmt
+    - terraform validate
+    - terraform plan
+    - terraform apply --auto-approve
+
+vpc endpoints host:
+  stage: endpoints
+  image:
+    name: hashicorp/terraform:1.4.4
+    entrypoint: [""]
+  script:
+    - cd $TF_VPCEP
+    - terraform init -backend-config "access_key=$AWS_ACCESS_KEY" -backend-config "secret_key=$AWS_SECRET_KEY"
+    - terraform fmt
+    - terraform validate
+    - terraform plan
+    - terraform apply --auto-approve
+
+application alb:
+  stage: alb
+  image:
+    name: hashicorp/terraform:1.4.4
+    entrypoint: [""]
+  script:
+    - cd $TF_ALB
+    - terraform init -backend-config "access_key=$AWS_ACCESS_KEY" -backend-config "secret_key=$AWS_SECRET_KEY"
+    - terraform fmt
+    - terraform validate
+    - terraform plan
+    - terraform apply --auto-approve
+    - terraform output -raw external-alb-to-access
+      #  artifacts:
+      # paths:
+      #- cd $RUN_PATH/url.txt
+
+deploy kv pair:
+  stage: deploy
+  image: ellerbrock/alpine-bash-curl-ssl:latest
+  script:
+    - cd $RUN_PATH
+    - bash fizzbuzz.sh $CONSUL_URL
+  only:
+    variables:
+    - $RUN_PATH && $AWS_ACCESS_KEY && $AWS_SECRET_KEY    
+  when: manual
+
+debug:
+  stage: debug
+  image:
+    name: hashicorp/terraform:1.4.4
+    entrypoint: [""]
+  script:
+    - cd $TF_DEBUG
+    - terraform init -backend-config "access_key=$AWS_ACCESS_KEY" -backend-config "secret_key=$AWS_SECRET_KEY"
+    - terraform fmt
+    - terraform validate
+    - terraform plan
+  only:
+    variables:
+    - $TF_DEBUG && $AWS_ACCESS_KEY && $AWS_SECRET_KEY    
+  when: manual
